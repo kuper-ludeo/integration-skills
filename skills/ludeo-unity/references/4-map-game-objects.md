@@ -333,6 +333,10 @@ under Open Questions and keep going. Note write cadence:
   though it's **set before the moment and constant through it**. It's visible, so it's load-bearing
   for a video clip (`06 §9.3` step-1 carve-out); the persistent-singleton reset otherwise strips it.
 - References → capture the **target's stable key** (§4).
+- Enum / type code / content id → capture the `int` **and** a companion `<Attr>Name` `string` label in
+  the same tick, so the value is readable downstream (`06 §1.5`). Plan both: an `EnemyType` row's
+  `Type` reads `int32 (+ EnemyTypeName string)`. Already-readable values (position, health, booleans)
+  get no label.
 
 > **Combat entities — flag mid-action / in-flight attack state (`06 §9.6`).** For any attacker (enemy,
 > boss, the player), note whether the moment can be captured **mid-attack**: a casting phase, a swing's
@@ -472,7 +476,9 @@ block per type as its wave is scoped):
 | Field | Kind | Disposition | Type | Source (file:line) | Cadence | Reference to | Notes |
 |---|---|---|---|---|---|---|---|
 <!-- Disposition = capture | defer→wave N | exclude(static|settings|derivable). Floor = save-serialized
-     fields (06 §2.5/§2.7) or runtime-mutable component fields. Type/Cadence apply to `capture` rows. -->
+     fields (06 §2.5/§2.7) or runtime-mutable component fields. Type/Cadence apply to `capture` rows.
+     Opaque values (enum / type code / content id) record the label in Type: `int32 (+ EnemyTypeName
+     string)` — 06 §1.5. -->
 
 ### Open Questions
 - ...

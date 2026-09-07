@@ -130,6 +130,34 @@ distinct from how the *game* saves itself (classified game-level in `phase 1` `K
 `phase 4`) — a game that saves a
 JSON/binary blob should still be tracked into Ludeo as discrete attributes by default.
 
+### 1.5 Readable labels for opaque values
+
+An attribute whose value is meaningless on its own — an enum, a type/state code, a content or asset
+id — is opaque to everyone who reads it downstream. `EnemyType = 3` tells a human, an objective
+author, or a highlight rule nothing; the meaning lives in a C# enum declaration that never reaches
+the platform. So **write a companion `string` attribute named `<Attr>Name` holding the human-readable
+label, alongside the numeric attribute in the same per-tick lambda**:
+
+```csharp
+obj.WriteData(K.EnemyType, (int)m_type);              // [SDK] int — restore keys off THIS
+obj.WriteData(K.EnemyTypeName, m_type.ToString());    // [SDK] string — readable label, never read back
+```
+
+- **The numeric attribute stays.** The label is additive, never a replacement.
+- **Restore never reads the label.** Identity, matching, and reconstruction key off the `int` /
+  stable key (§4). A `*Name` attribute is for humans and platform tooling (objectives, highlights,
+  scoring) — never for `ApplyRestoredState` (`phase 5 · task 4`). Reading one back makes the label a
+  second source of truth that breaks the moment someone renames an enum member.
+- **Do not label already-readable values.** No `PositionName`, `HPName`, `IsDeadName` — booleans,
+  scalars, and vectors read fine as-is. Labels are for opaque discriminators only.
+- **Cost is one send.** Labels are static, and the SDK diff-sends only changed values, so a label
+  costs one send per object lifetime, not one per tick. Write it in the same lambda as the dynamics —
+  never split "value now, label later" (§3.1).
+- **Source the label from the value**, e.g. `m_type.ToString()`, the game's existing display-name
+  table, or the asset name. Never hand-maintain a parallel `switch`.
+- **A label-only rename degrades readability of already-captured Ludeos rather than breaking their
+  restore** — precisely because restore ignores it. It is still a schema change (`phase 5 · task 1`).
+
 ---
 
 ## 2. How the Game Spawns & Owns Objects
@@ -516,7 +544,7 @@ Track if (1) AND (2 OR 3-not-derivable) AND (4-has-meaning).
 | Position / rotation / scale | Track (`Vector3`/`Quaternion`) | Attached objects: track the attachment relationship instead. **Absolute world position is only restorable if the world's spatial frame is rebuilt identically** — for procedural / streamed / randomized layouts (or a runtime **floating-origin / origin-rebasing** shift, which trips even an **authored** world) the geometry sits at a different origin/rotation than at capture, so capture/replay the resolved placement (`game-patterns/procedural-world.md` §3 Placement, §5) or store positions relative to a stable reconstructed frame. Detected up front by phase 2's world-frame probe → `CODE_MAP.session_boundaries.world_frame` |
 | Velocity | Usually track | Skip only if restoration reconstructs motion from position-over-time |
 | Health / ammo / resource | Track (current, not max) | Max is usually static |
-| Enum state (alive/dead, AI mode) | Track as `int` | Serialize the enum to int; document meaning |
+| Enum state (alive/dead, AI mode) | Track as `int` | Serialize the enum to int **and write a companion `<Attr>Name` string label** so the value is readable downstream (§1.5) |
 | Inventory | Track as array of item ids | Never references to item objects |
 | Cooldown / timer | Track **remaining**, not elapsed | Restore sets "time until" |
 | Animation frame / blend | Usually skip (derivable) | Track if a stuck pose would look wrong — a **mid-attack** swing/cast (windup→hit must continue) is a **later-wave** add: §9.6 |
@@ -586,8 +614,10 @@ obj => {
     obj.WriteData(K.Position, transform.position);
     obj.WriteData(K.Rotation, transform.rotation);
     obj.WriteData(K.HP, m_hp);
-    obj.WriteData(K.EnemyType, (int)m_type);          // enum → int
+    obj.WriteData(K.EnemyType, (int)m_type);          // enum → int (restore keys off this)
+    obj.WriteData(K.EnemyTypeName, m_type.ToString());       // readable label, never read back (§1.5)
     obj.WriteData(K.AiState, (int)m_aiState);
+    obj.WriteData(K.AiStateName, m_aiState.ToString());      // readable label (§1.5)
     obj.WriteData(K.TargetId, m_target != null ? m_target.RunId : -1);  // relationship by key
 };
 
@@ -664,6 +694,8 @@ registration not amortized) or at scene transition (mass despawn in one burst).
 - [ ] Tracked set passes §9; attributes are typed (`Vector3`/`Quaternion`/`int`/…), blobs only where warranted (§1.4).
 - [ ] In-flight attacks (§9.6) are scoped to a **later wave**, not Wave 1 (unless the census promoted a signature-moment attack); pooled projectiles register on `Get`/`Release` (§2.3); no attempt to capture sub-tick flashes.
 - [ ] Attribute names come from a `LudeoKeys` `[Layer]` class shared with restore.
+- [ ] Every opaque discriminator (enum / type code / content id) has a companion `<Attr>Name` string
+      label (§1.5); already-readable values have none; restore reads none of them.
 - [ ] Camera/viewpoint control state captured (pitch/yaw/orbit/FOV, §10.6) **when the view is independently
       controllable** — skip a fixed camera or one fully derived from restored player state; restore snaps to
       it (`07 §5.5`).
