@@ -139,8 +139,8 @@ the platform. So **write a companion `string` attribute named `<Attr>Name` holdi
 label, alongside the numeric attribute in the same per-tick lambda**:
 
 ```csharp
-obj.WriteData(K.EnemyType, (int)m_type);              // [SDK] int — restore keys off THIS
-obj.WriteData(K.EnemyTypeName, m_type.ToString());    // [SDK] string — readable label, never read back
+obj.WriteData(K.EnemyType, (int)m_type);      // [SDK] int — restore keys off THIS
+obj.WriteData(K.EnemyTypeName, m_typeName);   // [SDK] string — readable label, cached, never read back
 ```
 
 - **The numeric attribute stays.** The label is additive, never a replacement.
@@ -150,11 +150,17 @@ obj.WriteData(K.EnemyTypeName, m_type.ToString());    // [SDK] string — readab
   second source of truth that breaks the moment someone renames an enum member.
 - **Do not label already-readable values.** No `PositionName`, `HPName`, `IsDeadName` — booleans,
   scalars, and vectors read fine as-is. Labels are for opaque discriminators only.
-- **Cost is one send.** Labels are static, and the SDK diff-sends only changed values, so a label
-  costs one send per object lifetime, not one per tick. Write it in the same lambda as the dynamics —
-  never split "value now, label later" (§3.1).
-- **Source the label from the value**, e.g. `m_type.ToString()`, the game's existing display-name
-  table, or the asset name. Never hand-maintain a parallel `switch`.
+- **Network cost tracks the value it labels.** The SDK diff-sends only changed values, so a *type/id*
+  label (`EnemyTypeName`) is static and costs one send per object lifetime, while a *state* label
+  (`AiStateName`) is re-sent exactly when its `int` changes. Either way the label adds no sends the
+  numeric attribute wasn't already paying for. Write it in the same lambda as the dynamics — never
+  split "value now, label later" (§3.1).
+- **Never call `enum.ToString()` inside the per-tick lambda.** It boxes and resolves the name by
+  reflection — a managed allocation *every tick, per object*, which is precisely the hot-lambda cost
+  §11 warns about. The label changes only when the `int` does, so resolve it once: cache the string
+  when the value changes, or index a `static readonly string[]` / `Dictionary<TEnum,string>` built at
+  startup (from `Enum.GetNames` or the game's display-name table — never a hand-typed `switch` that
+  drifts from the enum).
 - **A label-only rename degrades readability of already-captured Ludeos rather than breaking their
   restore** — precisely because restore ignores it. It is still a schema change (`phase 5 · task 1`).
 
@@ -615,9 +621,9 @@ obj => {
     obj.WriteData(K.Rotation, transform.rotation);
     obj.WriteData(K.HP, m_hp);
     obj.WriteData(K.EnemyType, (int)m_type);          // enum → int (restore keys off this)
-    obj.WriteData(K.EnemyTypeName, m_type.ToString());       // readable label, never read back (§1.5)
+    obj.WriteData(K.EnemyTypeName, m_typeName);              // label cached at spawn — never read back (§1.5)
     obj.WriteData(K.AiState, (int)m_aiState);
-    obj.WriteData(K.AiStateName, m_aiState.ToString());      // readable label (§1.5)
+    obj.WriteData(K.AiStateName, EnemyLabels.Ai[(int)m_aiState]);  // table lookup, no per-tick alloc (§1.5)
     obj.WriteData(K.TargetId, m_target != null ? m_target.RunId : -1);  // relationship by key
 };
 
@@ -671,6 +677,8 @@ Levers, in rough order of impact:
 3. **Shrink the tracked set** — re-apply §9; a surprising fraction of tracked objects contribute nothing visible.
 4. **Sample non-critical state on-change**, not every frame (UI/metadata).
 5. **Amortize batch registration (§6)** across frames for large worlds to avoid a start hitch.
+6. **Resolve label strings once (§1.5)** — `enum.ToString()` in a per-tick lambda allocates every
+   tick, per object; cache the label or index a prebuilt table.
 
 Red flags: frame time regresses only with the SDK active (profile the hottest lambda); memory grows
 with no new spawns (a despawn path skips `StopTrackingLudeoState`); a hitch at gameplay start (batch

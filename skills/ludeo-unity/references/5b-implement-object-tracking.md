@@ -110,7 +110,7 @@ m_handler = LudeoController.Instance.StartTrackingLudeoState<DefaultLudeoStateHa
         obj.WriteData(<Keys>.Key, m_myStableKey);  // [SDK] identity/key — write every tick (diff-sent, free)
         obj.WriteData(<Keys>.Position, transform.position);   // [SDK] Vector3 [Unity]
         obj.WriteData(<Keys>.EnemyType, (int)m_type);         // [SDK] opaque enum → int
-        obj.WriteData(<Keys>.EnemyTypeName, m_type.ToString());  // [SDK] its readable label (06 §1.5)
+        obj.WriteData(<Keys>.EnemyTypeName, m_typeName);      // [SDK] its label, resolved once (06 §1.5)
         // … every kept property from the plan …
     });
 ```
@@ -118,7 +118,9 @@ m_handler = LudeoController.Instance.StartTrackingLudeoState<DefaultLudeoStateHa
 Keep the returned handler. Write **identity/key and dynamics in the same lambda** — never "register now,
 key later" (`06 §3.1`). Singletons (the player) need no key; collections write their stable key (§4).
 Every opaque value (enum / type code / content id) gets its `<Attr>Name` label written right beside it
-in the same lambda (`06 §1.5`); already-readable values get none.
+in the same lambda (`06 §1.5`); already-readable values get none. Resolve the label **once** (cached
+field, or a prebuilt lookup table) — an `enum.ToString()` inside the lambda allocates every tick, per
+object (`06 §11`).
 
 ### Step 5: Wire register/unregister into hook sites
 Hook sites come from the plan's pattern classification (`06 §2`/§5):
